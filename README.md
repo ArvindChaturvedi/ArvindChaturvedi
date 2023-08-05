@@ -1,5 +1,5 @@
 - 👋 Hi, I’m @ArvindChaturvedi
-- 👀 I’m interested in Cloud technologies and platform engineering
+- 👀 I’m interested in Cloud technologies and Platform Engineering
 - 🌱 I’m currently learning IaC using Pulumi, Crossplane, and GitOps
 - 💞️ I’m looking to collaborate on anything cloudy :D
 - 📫 Reach me @Arvind.Chaturvedi1092@gmail.com
