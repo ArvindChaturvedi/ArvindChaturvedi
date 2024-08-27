@@ -88,8 +88,8 @@ def sync_albs_to_ingresses():
     config.load_incluster_config()
     k8s_client = client.NetworkingV1Api()
 
-    # Filter ALBs by name
-    albs = [alb for alb in get_albs() if alb['LoadBalancerName'] in ['shared-external-alb', 'shared-internal-alb']]
+    # Filter ALBs by name prefix
+    albs = [alb for alb in get_albs() if alb['LoadBalancerName'].startswith(('shared-external-alb', 'shared-internal-alb'))]
     existing_ingresses = get_existing_ingresses()
 
     for alb in albs:
