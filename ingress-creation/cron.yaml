@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: alb-ingress-sync
+  namespace: kube-system
+spec:
+  schedule: "*/15 * * * *" # Runs every 15 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: alb-ingress-sync
+            image: your-account-id.dkr.ecr.your-region.amazonaws.com/alb-ingress-sync:latest
+            imagePullPolicy: Always
+            env:
+            - name: AWS_DEFAULT_REGION
+              value: "your-region"
+          restartPolicy: OnFailure
+          nodeSelector:
+            eks.amazonaws.com/fargate-profile: your-fargate-profile
