@@ -1,66 +1,45 @@
 import boto3
 from kubernetes import client, config
-from kubernetes.client.rest import ApiException
-import random
 
-# Initialize the Boto3 client for ELBv2 (ALBs)
-elb_client = boto3.client('elbv2')
-sg_client = boto3.client('ec2')
+def get_albs():
+    elb_client = boto3.client('elbv2')
+    response = elb_client.describe_load_balancers()
+    return response['LoadBalancers']
 
-# Load Kubernetes config (assuming the script runs within the cluster)
-config.load_incluster_config()
+def get_security_group_name(sg_id):
+    ec2_client = boto3.client('ec2')
+    response = ec2_client.describe_security_groups(GroupIds=[sg_id])
+    return response['SecurityGroups'][0]['GroupName']
 
-# Initialize Kubernetes API client
-k8s_client = client.NetworkingV1Api()
-
-def get_all_albs_with_tags():
-    paginator = elb_client.get_paginator('describe_load_balancers')
-    albs_with_tags = []
-    for page in paginator.paginate():
-        for lb in page['LoadBalancers']:
-            if lb['Type'] == 'application':
-                lb_arn = lb['LoadBalancerArn']
-                tags = elb_client.describe_tags(ResourceArns=[lb_arn])
-                tag_dict = {tag['Key']: tag['Value'] for tag in tags['TagDescriptions'][0]['Tags']}
-                lb['Tags'] = tag_dict
-                albs_with_tags.append(lb)
-    return albs_with_tags
-
-def get_ingress_name(scheme):
-    return f"system-{scheme}-ingress-{random.randint(1000, 9999)}"
-
-def determine_scheme(lb_name):
-    return "internet" if "external" in lb_name.lower() else "internal"
-
-def find_security_group(scheme):
-    filters = [
-        {'Name': 'group-name', 'Values': [f"{scheme}*"]},
-        {'Name': 'description', 'Values': ['managed by terraform']}
-    ]
-    sgs = sg_client.describe_security_groups(Filters=filters)
-    if sgs['SecurityGroups']:
-        return sgs['SecurityGroups'][0]['GroupId']
-    return None
+def get_existing_ingresses():
+    k8s_client = client.NetworkingV1Api()
+    ingresses = k8s_client.list_namespaced_ingress(namespace="kube-system")
+    existing_ingresses = {ing.metadata.name for ing in ingresses.items}
+    return existing_ingresses
 
 def create_ingress_object_with_annotations(alb):
-    scheme = determine_scheme(alb['LoadBalancerName'])
-    security_group = find_security_group(scheme)
+    lb_name = alb['LoadBalancerName']
+    lb_arn = alb['LoadBalancerArn']
+    lb_scheme = alb['Scheme']
     
-    ingress_name = get_ingress_name(scheme)
-    alb_tags = alb['Tags']
-    alb_group_name = alb_tags.get('ingress.k8s.aws/stack', 'default-stack')
-
     annotations = {
         "alb.ingress.kubernetes.io/actions.healthcheck-v2": '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTH"}}',
-        "alb.ingress.kubernetes.io/group.name": alb_group_name,
+        "alb.ingress.kubernetes.io/group.name": alb.get('Tags', {}).get('ingress.k8s.aws/stack', 'default'),
         "alb.ingress.kubernetes.io/group.order": "-1000",
         "alb.ingress.kubernetes.io/listen-ports": '[{"HTTPS":443}]',
-        "alb.ingress.kubernetes.io/load-balancer-name": alb['LoadBalancerName'],
+        "alb.ingress.kubernetes.io/load-balancer-name": lb_name,
         "alb.ingress.kubernetes.io/manage-backend-security-group": "true",
-        "alb.ingress.kubernetes.io/scheme": scheme,
-        "alb.ingress.kubernetes.io/security-groups": security_group if security_group else "default-security-group",
-        "alb.ingress.kubernetes.io/target-type": "ip",
+        "alb.ingress.kubernetes.io/scheme": "internet" if "external" in lb_name else "internal",
+        "alb.ingress.kubernetes.io/target-type": "ip"
     }
+
+    sg_id = alb['SecurityGroups'][0] if alb['SecurityGroups'] else None
+    sg_name = get_security_group_name(sg_id) if sg_id else None
+    
+    if sg_name and ("external" in sg_name or "internal" in sg_name):
+        annotations["alb.ingress.kubernetes.io/security-groups"] = sg_id
+
+    ingress_name = f"system-{annotations['alb.ingress.kubernetes.io/scheme']}-ingress-{lb_arn.split('/')[-1][:5]}"
 
     body = client.V1Ingress(
         api_version="networking.k8s.io/v1",
@@ -94,23 +73,21 @@ def create_ingress_object_with_annotations(alb):
     )
     return body
 
-def ensure_ingress_exists_with_annotations(alb):
-    ingress_name = f"alb-{alb['LoadBalancerName']}"
-    try:
-        k8s_client.read_namespaced_ingress(name=ingress_name, namespace='kube-system')
-        print(f"Ingress {ingress_name} already exists.")
-    except ApiException as e:
-        if e.status == 404:
-            print(f"Creating ingress {ingress_name}...")
-            body = create_ingress_object_with_annotations(alb)
-            k8s_client.create_namespaced_ingress(namespace='kube-system', body=body)
-        else:
-            raise
+def sync_albs_to_ingresses():
+    config.load_incluster_config()
+    k8s_client = client.NetworkingV1Api()
 
-def main():
-    albs = get_all_albs_with_tags()
+    albs = get_albs()
+    existing_ingresses = get_existing_ingresses()
+
     for alb in albs:
-        ensure_ingress_exists_with_annotations(alb)
+        ingress_name = f"system-{('internet' if 'external' in alb['LoadBalancerName'] else 'internal')}-ingress-{alb['LoadBalancerArn'].split('/')[-1][:5]}"
+        if ingress_name not in existing_ingresses:
+            ingress_object = create_ingress_object_with_annotations(alb)
+            k8s_client.create_namespaced_ingress(namespace='kube-system', body=ingress_object)
+            print(f"Created Ingress: {ingress_name}")
+        else:
+            print(f"Ingress {ingress_name} already exists.")
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    sync_albs_to_ingresses()
