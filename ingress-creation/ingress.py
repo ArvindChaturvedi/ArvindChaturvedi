@@ -22,11 +22,15 @@ def extract_random_number_from_alb_name(alb_name):
     return match.group(1) if match else None
 
 def find_security_group_by_random_number(security_groups, random_number):
+    if not random_number:
+        return None  # Return None if the random number is not found in the ALB name
+    
     for sg in security_groups:
         sg_name = sg['GroupName']
         if random_number in sg_name:
             return sg['GroupId']
-    return None
+    
+    return None  # Return None if no matching security group is found
 
 def get_existing_ingresses():
     k8s_client = client.NetworkingV1Api()
