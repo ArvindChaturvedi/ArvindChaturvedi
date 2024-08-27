@@ -33,7 +33,8 @@ def create_ingress_object_with_annotations(alb):
         "alb.ingress.kubernetes.io/target-type": "ip"
     }
 
-    sg_id = alb['SecurityGroups'][0] if alb['SecurityGroups'] else None
+    # Handle the case where 'SecurityGroups' might not be present
+    sg_id = alb.get('SecurityGroups', [None])[0]
     sg_name = get_security_group_name(sg_id) if sg_id else None
     
     if sg_name and ("external" in sg_name or "internal" in sg_name):
