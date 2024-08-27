@@ -6,6 +6,11 @@ def get_albs():
     response = elb_client.describe_load_balancers()
     return response['LoadBalancers']
 
+def get_alb_tags(alb_arn):
+    elb_client = boto3.client('elbv2')
+    response = elb_client.describe_tags(ResourceArns=[alb_arn])
+    return {tag['Key']: tag['Value'] for tag in response['TagDescriptions'][0]['Tags']}
+
 def get_security_group_name(sg_id):
     ec2_client = boto3.client('ec2')
     response = ec2_client.describe_security_groups(GroupIds=[sg_id])
@@ -22,9 +27,13 @@ def create_ingress_object_with_annotations(alb):
     lb_arn = alb['LoadBalancerArn']
     lb_scheme = alb['Scheme']
     
+    # Retrieve tags for the ALB
+    tags = get_alb_tags(lb_arn)
+    group_name = tags.get('ingress.k8s.aws/stack', lb_name)
+
     annotations = {
         "alb.ingress.kubernetes.io/actions.healthcheck-v2": '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTH"}}',
-        "alb.ingress.kubernetes.io/group.name": alb.get('Tags', {}).get('ingress.k8s.aws/stack', 'default'),
+        "alb.ingress.kubernetes.io/group.name": group_name,  # Use the tag value or the ALB name as a fallback
         "alb.ingress.kubernetes.io/group.order": "-1000",
         "alb.ingress.kubernetes.io/listen-ports": '[{"HTTPS":443}]',
         "alb.ingress.kubernetes.io/load-balancer-name": lb_name,
@@ -40,7 +49,8 @@ def create_ingress_object_with_annotations(alb):
     if sg_name and ("external" in sg_name or "internal" in sg_name):
         annotations["alb.ingress.kubernetes.io/security-groups"] = sg_id
 
-    ingress_name = f"system-{annotations['alb.ingress.kubernetes.io/scheme']}-ingress-{lb_arn.split('/')[-1][:5]}"
+    # Use the ALB name directly for the ingress name
+    ingress_name = lb_name
 
     body = client.V1Ingress(
         api_version="networking.k8s.io/v1",
@@ -78,11 +88,12 @@ def sync_albs_to_ingresses():
     config.load_incluster_config()
     k8s_client = client.NetworkingV1Api()
 
-    albs = get_albs()
+    # Filter ALBs by name
+    albs = [alb for alb in get_albs() if alb['LoadBalancerName'] in ['shared-external-alb', 'shared-internal-alb']]
     existing_ingresses = get_existing_ingresses()
 
     for alb in albs:
-        ingress_name = f"system-{('internet' if 'external' in alb['LoadBalancerName'] else 'internal')}-ingress-{alb['LoadBalancerArn'].split('/')[-1][:5]}"
+        ingress_name = alb['LoadBalancerName']  # Use the ALB name as the ingress name
         if ingress_name not in existing_ingresses:
             ingress_object = create_ingress_object_with_annotations(alb)
             k8s_client.create_namespaced_ingress(namespace='kube-system', body=ingress_object)
