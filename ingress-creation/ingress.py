@@ -17,17 +17,17 @@ def get_security_groups():
     response = ec2_client.describe_security_groups()
     return response['SecurityGroups']
 
-def extract_random_number_from_alb_name(alb_name):
-    match = re.search(r'-(\d+)$', alb_name)
+def extract_guid_from_alb_name(alb_name):
+    match = re.search(r'-(\w+)$', alb_name)  # Updated to capture any alphanumeric combination
     return match.group(1) if match else None
 
-def find_security_group_by_random_number(security_groups, random_number):
-    if not random_number:
-        return None  # Return None if the random number is not found in the ALB name
+def find_security_group_by_guid(security_groups, guid):
+    if not guid:
+        return None  # Return None if the GUID is not found in the ALB name
     
     for sg in security_groups:
         sg_name = sg['GroupName']
-        if random_number in sg_name:
+        if guid in sg_name:
             return sg['GroupId']
     
     return None  # Return None if no matching security group is found
@@ -48,13 +48,13 @@ def create_ingress_object_with_annotations(alb, security_group_id):
     group_name = tags.get('ingress.k8s.aws/stack', lb_name)
 
     annotations = {
-        "alb.ingress.kubernetes.io/actions.healthcheck-v2": '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTHY"}}',
-        "alb.ingress.kubernetes.io/group.name": group_name,  # Use the tag value or the ALB name as a fallback
+        "alb.ingress.kubernetes.io/actions.healthcheck-v2": '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTH"}}',
+        "alb.ingress.kubernetes.io/group.name": group_name,  # Use the Security Group ID as group name
         "alb.ingress.kubernetes.io/group.order": "-1000",
         "alb.ingress.kubernetes.io/listen-ports": '[{"HTTPS":443}]',
         "alb.ingress.kubernetes.io/load-balancer-name": lb_name,
         "alb.ingress.kubernetes.io/manage-backend-security-group": "true",
-        "alb.ingress.kubernetes.io/scheme": "internet-facing" if "external" in lb_name else "internal",
+        "alb.ingress.kubernetes.io/scheme": "internet" if "external" in lb_name else "internal",
         "alb.ingress.kubernetes.io/target-type": "ip"
     }
 
@@ -116,11 +116,11 @@ def sync_albs_to_ingresses():
         else:
             continue  # Skip ALBs that don't match the criteria
 
-        # Extract the random number from the ALB name
-        random_number = extract_random_number_from_alb_name(lb_name)
+        # Extract the GUID from the ALB name
+        guid = extract_guid_from_alb_name(lb_name)
 
-        # Find the security group that matches the random number
-        security_group_id = find_security_group_by_random_number(security_groups, random_number)
+        # Find the security group that matches the GUID
+        security_group_id = find_security_group_by_guid(security_groups, guid)
 
         if ingress_name not in existing_ingresses:
             ingress_object = create_ingress_object_with_annotations(alb, security_group_id)
