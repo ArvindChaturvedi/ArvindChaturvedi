@@ -25,9 +25,12 @@ def find_security_group_by_guid(security_groups, guid):
     if not guid:
         return None  # Return None if the GUID is not found in the ALB name
     
-    for sg in security_groups:
+    # First, find the security groups with the description "Managed By Terraform"
+    terraform_sgs = [sg for sg in security_groups if 'Managed By Terraform' in sg.get('Description', '')]
+
+    for sg in terraform_sgs:
         sg_name = sg['GroupName']
-        if guid in sg_name:
+        if guid in sg_name:  # Checks if the GUID is part of the security group name
             return sg['GroupId']
     
     return None  # Return None if no matching security group is found
