@@ -12,28 +12,26 @@ def get_alb_tags(alb_arn):
     response = elb_client.describe_tags(ResourceArns=[alb_arn])
     return {tag['Key']: tag['Value'] for tag in response['TagDescriptions'][0]['Tags']}
 
-def get_security_groups():
-    ec2_client = boto3.client('ec2')
-    response = ec2_client.describe_security_groups()
-    return response['SecurityGroups']
+def get_security_groups_by_alb_tag(tag_value):
+    elb_client = boto3.client('elbv2')
+    response = elb_client.describe_load_balancers()
+    security_group_ids = []
+    
+    for lb in response['LoadBalancers']:
+        lb_arn = lb['LoadBalancerArn']
+        tags = get_alb_tags(lb_arn)
+        
+        # Check if the ALB has the tag "ingress.k8s.aws/stack" with the required value
+        if tags.get('ingress.k8s.aws/stack') == tag_value:
+            # Add the SecurityGroups associated with this ALB to the list
+            if 'SecurityGroups' in lb:
+                security_group_ids.extend(lb['SecurityGroups'])
+    
+    return security_group_ids
 
 def extract_guid_from_alb_name(alb_name):
-    match = re.search(r'-(\w+)$', alb_name)  # Updated to capture any alphanumeric combination
+    match = re.search(r'-(\w+)$', alb_name)  # Extracting the GUID at the end
     return match.group(1) if match else None
-
-def find_security_group_by_guid(security_groups, guid):
-    if not guid:
-        return None  # Return None if the GUID is not found in the ALB name
-    
-    # First, find the security groups with the description "Managed By Terraform"
-    terraform_sgs = [sg for sg in security_groups if 'Managed By Terraform' in sg.get('Description', '')]
-
-    for sg in terraform_sgs:
-        sg_name = sg['GroupName']
-        if guid in sg_name:  # Checks if the GUID is part of the security group name
-            return sg['GroupId']
-    
-    return None  # Return None if no matching security group is found
 
 def get_existing_ingresses():
     k8s_client = client.NetworkingV1Api()
@@ -52,7 +50,7 @@ def create_ingress_object_with_annotations(alb, security_group_id):
 
     annotations = {
         "alb.ingress.kubernetes.io/actions.healthcheck-v2": '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTH"}}',
-        "alb.ingress.kubernetes.io/group.name": group_name,  # Use the Security Group ID as group name
+        "alb.ingress.kubernetes.io/group.name": group_name,
         "alb.ingress.kubernetes.io/group.order": "-1000",
         "alb.ingress.kubernetes.io/listen-ports": '[{"HTTPS":443}]',
         "alb.ingress.kubernetes.io/load-balancer-name": lb_name,
@@ -64,7 +62,6 @@ def create_ingress_object_with_annotations(alb, security_group_id):
     if security_group_id:
         annotations["alb.ingress.kubernetes.io/security-groups"] = security_group_id
 
-    # Use the ALB name directly for the ingress name
     ingress_name = lb_name
 
     body = client.V1Ingress(
@@ -104,26 +101,23 @@ def sync_albs_to_ingresses():
     k8s_client = client.NetworkingV1Api()
     
     albs = get_albs()
-    security_groups = get_security_groups()
     existing_ingresses = get_existing_ingresses()
 
     for alb in albs:
         lb_name = alb['LoadBalancerName']
         tags = get_alb_tags(alb['LoadBalancerArn'])
 
-        # Check ALB name prefix and corresponding tag value
         if lb_name.startswith('shared-external-alb') and tags.get('ingress.k8s.aws/stack', '').startswith('shared-external-'):
             ingress_name = lb_name
+            security_group_ids = get_security_groups_by_alb_tag('shared-external')
         elif lb_name.startswith('shared-internal-alb') and tags.get('ingress.k8s.aws/stack', '').startswith('shared-internal-'):
             ingress_name = lb_name
+            security_group_ids = get_security_groups_by_alb_tag('shared-internal')
         else:
             continue  # Skip ALBs that don't match the criteria
 
-        # Extract the GUID from the ALB name
-        guid = extract_guid_from_alb_name(lb_name)
-
-        # Find the security group that matches the GUID
-        security_group_id = find_security_group_by_guid(security_groups, guid)
+        # Use the first security group from the retrieved list (if available)
+        security_group_id = security_group_ids[0] if security_group_ids else None
 
         if ingress_name not in existing_ingresses:
             ingress_object = create_ingress_object_with_annotations(alb, security_group_id)
