@@ -39,7 +39,7 @@ def get_existing_ingresses():
     existing_ingresses = {ing.metadata.name for ing in ingresses.items}
     return existing_ingresses
 
-def create_ingress_object_with_annotations(alb, security_group_id):
+def create_ingress_object_with_annotations(alb, security_group_ids):
     lb_name = alb['LoadBalancerName']
     lb_arn = alb['LoadBalancerArn']
     lb_scheme = alb['Scheme']
@@ -47,6 +47,9 @@ def create_ingress_object_with_annotations(alb, security_group_id):
     # Retrieve tags for the ALB
     tags = get_alb_tags(lb_arn)
     group_name = tags.get('ingress.k8s.aws/stack', lb_name)
+
+    # Combine all associated security groups into a comma-separated string
+    security_group_ids_str = ",".join(security_group_ids) if security_group_ids else None
 
     annotations = {
         "alb.ingress.kubernetes.io/actions.healthcheck-v2": '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTH"}}',
@@ -59,8 +62,8 @@ def create_ingress_object_with_annotations(alb, security_group_id):
         "alb.ingress.kubernetes.io/target-type": "ip"
     }
 
-    if security_group_id:
-        annotations["alb.ingress.kubernetes.io/security-groups"] = security_group_id
+    if security_group_ids_str:
+        annotations["alb.ingress.kubernetes.io/security-groups"] = security_group_ids_str
 
     ingress_name = lb_name
 
@@ -116,11 +119,9 @@ def sync_albs_to_ingresses():
         else:
             continue  # Skip ALBs that don't match the criteria
 
-        # Use the first security group from the retrieved list (if available)
-        security_group_id = security_group_ids[0] if security_group_ids else None
-
+        # Check if Ingress already exists
         if ingress_name not in existing_ingresses:
-            ingress_object = create_ingress_object_with_annotations(alb, security_group_id)
+            ingress_object = create_ingress_object_with_annotations(alb, security_group_ids)
             k8s_client.create_namespaced_ingress(namespace='kube-system', body=ingress_object)
             print(f"Created Ingress: {ingress_name}")
         else:
