@@ -29,9 +29,10 @@ def get_load_balancers_by_tag(key, value):
             if alb_name.startswith('shared-external-alb') or alb_name.startswith('shared-internal-alb'):
                 alb_arn = alb['LoadBalancerArn']
                 tags = elbv2_client.describe_tags(ResourceArns=[alb_arn])['TagDescriptions'][0]['Tags']
-                for tag in tags:
-                    if tag['Key'] == key and tag['Value'] == value:
-                        filtered_albs.append(alb)
+                alb_tags = {tag['Key']: tag['Value'] for tag in tags}
+                if alb_tags.get(key) == value:
+                    alb['Tags'] = alb_tags  # Attach tags to ALB for later use
+                    filtered_albs.append(alb)
         return filtered_albs
     except ClientError as e:
         print(f"Error retrieving ALBs by tag {key}={value}: {e}")
@@ -48,13 +49,17 @@ def create_ingress_object(alb, security_groups, is_external):
     """Create an Ingress object based on the ALB type."""
     alb_name = alb['LoadBalancerName']
     ingress_name = f"system-{alb_name}-ingress"
+    
+    # Get the value of 'ingress.k8s.aws/stack' for group.name
+    group_name = alb['Tags'].get('ingress.k8s.aws/stack', 'default') 
+
     ingress_annotations = {
         "alb.ingress.kubernetes.io/load-balancer-name": alb_name,
         "alb.ingress.kubernetes.io/security-groups": ','.join(security_groups),
         "alb.ingress.kubernetes.io/scheme": "internet" if is_external else "internal",
         "alb.ingress.kubernetes.io/listen-ports": '[{"HTTPS":443}]',
         "alb.ingress.kubernetes.io/target-type": "ip",
-        "alb.ingress.kubernetes.io/group.name": alb_name,
+        "alb.ingress.kubernetes.io/group.name": group_name,  # Correctly assign value from ALB tag
         "alb.ingress.kubernetes.io/group.order": "-1000"
     }
 
