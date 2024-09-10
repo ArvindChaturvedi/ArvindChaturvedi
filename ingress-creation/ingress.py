@@ -26,8 +26,8 @@ v1 = kubernetes.client.NetworkingV1Api()
 NAMESPACE = "system-application"
 TARGET_NAMESPACE = "kube-system"
 
-def get_load_balancers_by_tag(key, value_prefix):
-    """Retrieve ALBs based on specific tag key and a value starting with the given prefix."""
+def get_load_balancers_by_tag(key, value):
+    """Retrieve ALBs based on specific tag key and value."""
     try:
         response = elbv2_client.describe_load_balancers()
         load_balancers = response['LoadBalancers']
@@ -35,28 +35,26 @@ def get_load_balancers_by_tag(key, value_prefix):
         # Filter ALBs based on tag
         filtered_albs = []
         for alb in load_balancers:
-            alb_name = alb['LoadBalancerName']
-            if alb_name.startswith('shared-external-alb') or alb_name.startswith('shared-internal-alb'):
-                alb_arn = alb['LoadBalancerArn']
-                tags = elbv2_client.describe_tags(ResourceArns=[alb_arn])['TagDescriptions'][0]['Tags']
-                alb_tags = {tag['Key']: tag['Value'] for tag in tags}
-                
-                # Ensure the value of 'ingress.k8s.aws/stack' starts with the correct prefix
-                stack_tag_value = alb_tags.get(key, '')
-                if stack_tag_value.startswith(value_prefix):
-                    alb['Tags'] = alb_tags  # Attach tags to ALB for later use
-                    filtered_albs.append(alb)
+            alb_arn = alb['LoadBalancerArn']
+            tags = elbv2_client.describe_tags(ResourceArns=[alb_arn])['TagDescriptions'][0]['Tags']
+            alb_tags = {tag['Key']: tag['Value'] for tag in tags}
+            
+            # Ensure the value of 'ingress.k8s.aws/stack' matches the provided value
+            if alb_tags.get(key) == value:
+                alb['Tags'] = alb_tags  # Attach tags to ALB for later use
+                filtered_albs.append(alb)
         return filtered_albs
     except ClientError as e:
-        print(f"Error retrieving ALBs by tag {key} with value starting with {value_prefix}: {e}")
+        print(f"Error retrieving ALBs by tag {key} with value {value}: {e}")
         return []
 
-def get_security_groups_for_albs(albs):
-    """Retrieve the security groups associated with the ALBs."""
-    sg_ids = []
-    for alb in albs:
-        sg_ids.extend(alb['SecurityGroups'])
-    return sg_ids
+def get_security_groups_from_alb(alb):
+    """Retrieve the security groups associated with an ALB."""
+    try:
+        return alb['SecurityGroups']
+    except KeyError:
+        print(f"Error: No SecurityGroups associated with ALB {alb['LoadBalancerName']}")
+        return []
 
 def create_ingress_object(alb, security_groups, is_external):
     """Create an Ingress object based on the ALB type."""
@@ -140,21 +138,21 @@ def apply_ingress(ingress):
             print(f"Error checking ingress {ingress.metadata.name}: {e}")
 
 def main():
-    # Get External ALBs with the correct tag (shared-external-*)
-    external_albs = get_load_balancers_by_tag('ingress.k8s.aws/stack', 'shared-external-')
-    external_sgs = get_security_groups_for_albs(external_albs)
-
-    # Get Internal ALBs with the correct tag (shared-internal-*)
-    internal_albs = get_load_balancers_by_tag('ingress.k8s.aws/stack', 'shared-internal-')
-    internal_sgs = get_security_groups_for_albs(internal_albs)
-
+    # Get External ALBs with the tag key 'ingress.k8s.aws/stack' and value 'shared-external'
+    external_albs = get_load_balancers_by_tag('ingress.k8s.aws/stack', 'shared-external')
+    
     # Apply Ingresses for External ALBs
     for alb in external_albs:
+        external_sgs = get_security_groups_from_alb(alb)
         ingress = create_ingress_object(alb, external_sgs, is_external=True)
         apply_ingress(ingress)
 
+    # Get Internal ALBs with the tag key 'ingress.k8s.aws/stack' and value 'shared-internal'
+    internal_albs = get_load_balancers_by_tag('ingress.k8s.aws/stack', 'shared-internal')
+    
     # Apply Ingresses for Internal ALBs
     for alb in internal_albs:
+        internal_sgs = get_security_groups_from_alb(alb)
         ingress = create_ingress_object(alb, internal_sgs, is_external=False)
         apply_ingress(ingress)
 
