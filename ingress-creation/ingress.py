@@ -1,48 +1,51 @@
 import boto3
 import kubernetes
-import os
 from kubernetes.client import V1ObjectMeta, V1Ingress, V1IngressSpec, V1IngressRule, V1HTTPIngressPath, V1HTTPIngressRuleValue, V1IngressBackend, V1TypedLocalObjectReference
 from kubernetes.client.rest import ApiException
 from botocore.exceptions import ClientError
+import os
 
-# Initialize clients
+# AWS Clients initialized with IRSA permissions
 ec2_client = boto3.client('ec2')
 elbv2_client = boto3.client('elbv2')
-k8s_client = kubernetes.config.load_incluster_config()
 
-# Kubernetes API client
+# Kubernetes client initialized using the in-cluster configuration
+kubernetes.config.load_incluster_config()
 v1 = kubernetes.client.NetworkingV1Api()
 
-NAMESPACE = "kube-system"
+NAMESPACE = "system-application"
+TARGET_NAMESPACE = "kube-system"
 
 def get_load_balancers_by_tag(key, value):
-    """Retrieve ALBs with a specific tag key and value"""
+    """Retrieve ALBs based on specific tag key-value pair."""
     try:
         response = elbv2_client.describe_load_balancers()
         load_balancers = response['LoadBalancers']
 
-        # Filter ALBs based on the given tag key-value pair
+        # Filter ALBs based on tag
         filtered_albs = []
         for alb in load_balancers:
-            alb_arn = alb['LoadBalancerArn']
-            tags = elbv2_client.describe_tags(ResourceArns=[alb_arn])['TagDescriptions'][0]['Tags']
-            for tag in tags:
-                if tag['Key'] == key and tag['Value'] == value:
-                    filtered_albs.append(alb)
+            alb_name = alb['LoadBalancerName']
+            if alb_name.startswith('shared-external-alb') or alb_name.startswith('shared-internal-alb'):
+                alb_arn = alb['LoadBalancerArn']
+                tags = elbv2_client.describe_tags(ResourceArns=[alb_arn])['TagDescriptions'][0]['Tags']
+                for tag in tags:
+                    if tag['Key'] == key and tag['Value'] == value:
+                        filtered_albs.append(alb)
         return filtered_albs
     except ClientError as e:
         print(f"Error retrieving ALBs by tag {key}={value}: {e}")
         return []
 
 def get_security_groups_for_albs(albs):
-    """Retrieve security groups associated with the ALBs"""
+    """Retrieve the security groups associated with the ALBs."""
     sg_ids = []
     for alb in albs:
         sg_ids.extend(alb['SecurityGroups'])
     return sg_ids
 
 def create_ingress_object(alb, security_groups, is_external):
-    """Create an Ingress object based on the ALB type (external/internal)"""
+    """Create an Ingress object based on the ALB type."""
     alb_name = alb['LoadBalancerName']
     ingress_name = f"system-{alb_name}-ingress"
     ingress_annotations = {
@@ -55,7 +58,7 @@ def create_ingress_object(alb, security_groups, is_external):
         "alb.ingress.kubernetes.io/group.order": "-1000"
     }
 
-    # Customizing annotation based on external/internal ALB
+    # Customizing annotations based on ALB type
     if is_external:
         ingress_annotations["alb.ingress.kubernetes.io/actions.healthcheck-v2"] = (
             '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTHY"}}'
@@ -93,7 +96,7 @@ def create_ingress_object(alb, security_groups, is_external):
     ingress = V1Ingress(
         metadata=V1ObjectMeta(
             name=ingress_name,
-            namespace=NAMESPACE,
+            namespace=TARGET_NAMESPACE,  # Ensure it's created in kube-system namespace
             annotations=ingress_annotations
         ),
         spec=ingress_spec
@@ -101,10 +104,10 @@ def create_ingress_object(alb, security_groups, is_external):
     return ingress
 
 def apply_ingress(ingress):
-    """Apply the Ingress object to the Kubernetes cluster"""
+    """Apply the Ingress object to the Kubernetes cluster."""
     try:
-        v1.create_namespaced_ingress(namespace=NAMESPACE, body=ingress)
-        print(f"Ingress {ingress.metadata.name} created successfully.")
+        v1.create_namespaced_ingress(namespace=TARGET_NAMESPACE, body=ingress)
+        print(f"Ingress {ingress.metadata.name} created successfully in {TARGET_NAMESPACE}.")
     except ApiException as e:
         if e.status == 409:
             print(f"Ingress {ingress.metadata.name} already exists.")
@@ -112,20 +115,20 @@ def apply_ingress(ingress):
             print(f"Error creating ingress {ingress.metadata.name}: {e}")
 
 def main():
-    # Retrieve external ALBs
+    # Get External ALBs with the correct tag
     external_albs = get_load_balancers_by_tag('ingress.k8s.aws/stack', 'shared-external')
     external_sgs = get_security_groups_for_albs(external_albs)
 
-    # Retrieve internal ALBs
+    # Get Internal ALBs with the correct tag
     internal_albs = get_load_balancers_by_tag('ingress.k8s.aws/stack', 'shared-internal')
     internal_sgs = get_security_groups_for_albs(internal_albs)
 
-    # Apply Ingresses for external ALBs
+    # Apply Ingresses for External ALBs
     for alb in external_albs:
         ingress = create_ingress_object(alb, external_sgs, is_external=True)
         apply_ingress(ingress)
 
-    # Apply Ingresses for internal ALBs
+    # Apply Ingresses for Internal ALBs
     for alb in internal_albs:
         ingress = create_ingress_object(alb, internal_sgs, is_external=False)
         apply_ingress(ingress)
