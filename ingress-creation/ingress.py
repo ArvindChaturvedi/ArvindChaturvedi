@@ -1,6 +1,6 @@
 import boto3
 import kubernetes
-from kubernetes.client import V1ObjectMeta, V1Ingress, V1IngressSpec, V1IngressRule, V1HTTPIngressPath, V1HTTPIngressRuleValue, V1IngressBackend, V1TypedLocalObjectReference
+from kubernetes.client import V1ObjectMeta, V1Ingress, V1IngressSpec, V1IngressRule, V1HTTPIngressPath, V1HTTPIngressRuleValue, V1IngressBackend, V1ServiceBackendPort
 from kubernetes.client.rest import ApiException
 from botocore.exceptions import ClientError
 import os
@@ -16,8 +16,8 @@ v1 = kubernetes.client.NetworkingV1Api()
 NAMESPACE = "system-application"
 TARGET_NAMESPACE = "kube-system"
 
-def get_load_balancers_by_tag(key, value):
-    """Retrieve ALBs based on specific tag key-value pair."""
+def get_load_balancers_by_tag(key, value_prefix):
+    """Retrieve ALBs based on specific tag key and a value starting with the given prefix."""
     try:
         response = elbv2_client.describe_load_balancers()
         load_balancers = response['LoadBalancers']
@@ -30,12 +30,15 @@ def get_load_balancers_by_tag(key, value):
                 alb_arn = alb['LoadBalancerArn']
                 tags = elbv2_client.describe_tags(ResourceArns=[alb_arn])['TagDescriptions'][0]['Tags']
                 alb_tags = {tag['Key']: tag['Value'] for tag in tags}
-                if alb_tags.get(key) == value:
+                
+                # Ensure the value of 'ingress.k8s.aws/stack' starts with the correct prefix
+                stack_tag_value = alb_tags.get(key, '')
+                if stack_tag_value.startswith(value_prefix):
                     alb['Tags'] = alb_tags  # Attach tags to ALB for later use
                     filtered_albs.append(alb)
         return filtered_albs
     except ClientError as e:
-        print(f"Error retrieving ALBs by tag {key}={value}: {e}")
+        print(f"Error retrieving ALBs by tag {key} with value starting with {value_prefix}: {e}")
         return []
 
 def get_security_groups_for_albs(albs):
@@ -51,7 +54,7 @@ def create_ingress_object(alb, security_groups, is_external):
     ingress_name = f"system-{alb_name}-ingress"
     
     # Get the value of 'ingress.k8s.aws/stack' for group.name
-    group_name = alb['Tags'].get('ingress.k8s.aws/stack', 'default') 
+    group_name = alb['Tags'].get('ingress.k8s.aws/stack', 'default')
 
     ingress_annotations = {
         "alb.ingress.kubernetes.io/load-balancer-name": alb_name,
@@ -89,6 +92,7 @@ def create_ingress_object(alb, security_groups, is_external):
                                     name="healthcheck-v2",
                                     kind="Service",
                                 ),
+                                port=V1ServiceBackendPort(name="use-annotation")  # Use port from annotation
                             )
                         )
                     ]
@@ -120,12 +124,12 @@ def apply_ingress(ingress):
             print(f"Error creating ingress {ingress.metadata.name}: {e}")
 
 def main():
-    # Get External ALBs with the correct tag
-    external_albs = get_load_balancers_by_tag('ingress.k8s.aws/stack', 'shared-external')
+    # Get External ALBs with the correct tag (shared-external-*)
+    external_albs = get_load_balancers_by_tag('ingress.k8s.aws/stack', 'shared-external-')
     external_sgs = get_security_groups_for_albs(external_albs)
 
-    # Get Internal ALBs with the correct tag
-    internal_albs = get_load_balancers_by_tag('ingress.k8s.aws/stack', 'shared-internal')
+    # Get Internal ALBs with the correct tag (shared-internal-*)
+    internal_albs = get_load_balancers_by_tag('ingress.k8s.aws/stack', 'shared-internal-')
     internal_sgs = get_security_groups_for_albs(internal_albs)
 
     # Apply Ingresses for External ALBs
