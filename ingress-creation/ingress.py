@@ -1,6 +1,16 @@
 import boto3
 import kubernetes
-from kubernetes.client import V1ObjectMeta, V1Ingress, V1IngressSpec, V1IngressRule, V1HTTPIngressPath, V1HTTPIngressRuleValue, V1IngressBackend, V1ServiceBackendPort
+from kubernetes.client import (
+    V1ObjectMeta,
+    V1Ingress,
+    V1IngressSpec,
+    V1IngressRule,
+    V1HTTPIngressPath,
+    V1HTTPIngressRuleValue,
+    V1IngressBackend,
+    V1IngressServiceBackend,
+    V1ServiceBackendPort
+)
 from kubernetes.client.rest import ApiException
 from botocore.exceptions import ClientError
 import os
@@ -62,7 +72,7 @@ def create_ingress_object(alb, security_groups, is_external):
         "alb.ingress.kubernetes.io/scheme": "internet" if is_external else "internal",
         "alb.ingress.kubernetes.io/listen-ports": '[{"HTTPS":443}]',
         "alb.ingress.kubernetes.io/target-type": "ip",
-        "alb.ingress.kubernetes.io/group.name": group_name,  # Correctly assign value from ALB tag
+        "alb.ingress.kubernetes.io/group.name": group_name,
         "alb.ingress.kubernetes.io/group.order": "-1000"
     }
 
@@ -80,6 +90,7 @@ def create_ingress_object(alb, security_groups, is_external):
 
     # Define the Ingress spec
     ingress_spec = V1IngressSpec(
+        ingress_class_name="alb",
         rules=[
             V1IngressRule(
                 http=V1HTTPIngressRuleValue(
@@ -88,11 +99,10 @@ def create_ingress_object(alb, security_groups, is_external):
                             path=ingress_path,
                             path_type="Exact",
                             backend=V1IngressBackend(
-                                service=V1TypedLocalObjectReference(
+                                service=V1IngressServiceBackend(
                                     name="healthcheck-v2",
-                                    kind="Service",
-                                ),
-                                port=V1ServiceBackendPort(name="use-annotation")  # Use port from annotation
+                                    port=V1ServiceBackendPort(name="use-annotation")
+                                )
                             )
                         )
                     ]
@@ -115,13 +125,19 @@ def create_ingress_object(alb, security_groups, is_external):
 def apply_ingress(ingress):
     """Apply the Ingress object to the Kubernetes cluster."""
     try:
-        v1.create_namespaced_ingress(namespace=TARGET_NAMESPACE, body=ingress)
-        print(f"Ingress {ingress.metadata.name} created successfully in {TARGET_NAMESPACE}.")
+        existing_ingress = v1.read_namespaced_ingress(
+            name=ingress.metadata.name, namespace=TARGET_NAMESPACE
+        )
+        print(f"Ingress {ingress.metadata.name} already exists.")
     except ApiException as e:
-        if e.status == 409:
-            print(f"Ingress {ingress.metadata.name} already exists.")
+        if e.status == 404:
+            try:
+                v1.create_namespaced_ingress(namespace=TARGET_NAMESPACE, body=ingress)
+                print(f"Ingress {ingress.metadata.name} created successfully in {TARGET_NAMESPACE}.")
+            except ApiException as create_error:
+                print(f"Error creating ingress {ingress.metadata.name}: {create_error}")
         else:
-            print(f"Error creating ingress {ingress.metadata.name}: {e}")
+            print(f"Error checking ingress {ingress.metadata.name}: {e}")
 
 def main():
     # Get External ALBs with the correct tag (shared-external-*)
