@@ -29,10 +29,6 @@ def get_security_groups_by_alb_tag(tag_value):
     
     return security_group_ids
 
-def extract_guid_from_alb_name(alb_name):
-    match = re.search(r'-(\w+)$', alb_name)  # Extracting the GUID at the end
-    return match.group(1) if match else None
-
 def get_existing_ingresses():
     k8s_client = client.NetworkingV1Api()
     ingresses = k8s_client.list_namespaced_ingress(namespace="kube-system")
@@ -54,11 +50,9 @@ def create_ingress_object_with_annotations(alb, security_group_ids):
     # Determine if the ALB is internal or external
     is_external = 'external' in lb_name
     path = "/healthcheck" if is_external else "/sys-internal"
+    
+    # Adjust annotations with proper format for external and internal ALBs
     annotations = {
-        "alb.ingress.kubernetes.io/actions.healthcheck-v2" if is_external else "alb.ingress.kubernetes.io/actions.listener-protection-v2": (
-            '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTHY"}}' if is_external else
-            '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"Secure Listener Protection"}}'
-        ),
         "alb.ingress.kubernetes.io/group.name": group_name,
         "alb.ingress.kubernetes.io/group.order": "-1000",
         "alb.ingress.kubernetes.io/listen-ports": '[{"HTTPS":443}]',
@@ -67,6 +61,14 @@ def create_ingress_object_with_annotations(alb, security_group_ids):
         "alb.ingress.kubernetes.io/scheme": "internet" if is_external else "internal",
         "alb.ingress.kubernetes.io/target-type": "ip"
     }
+
+    # Set the appropriate action annotation based on whether the ALB is external or internal
+    if is_external:
+        annotations["alb.ingress.kubernetes.io/actions.healthcheck-v2"] = '''|
+  {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTHY"}}'''
+    else:
+        annotations["alb.ingress.kubernetes.io/actions.listener-protection-v2"] = '''|
+  {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"Secure Listener Protection"}}'''
 
     if security_group_ids_str:
         annotations["alb.ingress.kubernetes.io/security-groups"] = security_group_ids_str
