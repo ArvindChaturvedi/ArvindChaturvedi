@@ -61,7 +61,7 @@ def create_ingress_object_with_annotations(alb, security_group_ids):
     if security_group_ids_str:
         annotations["alb.ingress.kubernetes.io/security-groups"] = security_group_ids_str
 
-    # Customize the annotations based on internal or external ALB
+    # Correctly format the annotations for internal or external ALB
     if lb_name.startswith('shared-external-alb'):
         annotations["alb.ingress.kubernetes.io/actions.healthcheck-v2"] = (
             '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTHY"}}'
