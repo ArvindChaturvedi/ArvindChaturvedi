@@ -47,33 +47,34 @@ def create_ingress_object_with_annotations(alb, security_group_ids):
     # Combine all associated security groups into a comma-separated string
     security_group_ids_str = ",".join(security_group_ids) if security_group_ids else None
 
-    # Determine if the ALB is internal or external
-    is_external = 'external' in lb_name
-    path = "/healthcheck" if is_external else "/sys-internal"
-    
-    # Adjust annotations with proper format for external and internal ALBs
     annotations = {
         "alb.ingress.kubernetes.io/group.name": group_name,
         "alb.ingress.kubernetes.io/group.order": "-1000",
         "alb.ingress.kubernetes.io/listen-ports": '[{"HTTPS":443}]',
         "alb.ingress.kubernetes.io/load-balancer-name": lb_name,
         "alb.ingress.kubernetes.io/manage-backend-security-group": "true",
-        "alb.ingress.kubernetes.io/scheme": "internet" if is_external else "internal",
+        "alb.ingress.kubernetes.io/scheme": "internet" if "external" in lb_name else "internal",
         "alb.ingress.kubernetes.io/target-type": "ip"
     }
 
-    # Set the appropriate action annotation based on whether the ALB is external or internal
-    if is_external:
-        annotations["alb.ingress.kubernetes.io/actions.healthcheck-v2"] = '''|
-  {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTHY"}}'''
-    else:
-        annotations["alb.ingress.kubernetes.io/actions.listener-protection-v2"] = '''|
-  {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"Secure Listener Protection"}}'''
-
+    # Add the security groups to annotations if available
     if security_group_ids_str:
         annotations["alb.ingress.kubernetes.io/security-groups"] = security_group_ids_str
 
+    # Customize the annotations based on internal or external ALB
+    if lb_name.startswith('shared-external-alb'):
+        annotations["alb.ingress.kubernetes.io/actions.healthcheck-v2"] = (
+            '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTHY"}}'
+        )
+    elif lb_name.startswith('shared-internal-alb'):
+        annotations["alb.ingress.kubernetes.io/actions.listener-protection-v2"] = (
+            '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"Secure Listener Protection"}}'
+        )
+
     ingress_name = lb_name
+
+    # Define the path based on internal/external ALB
+    path = "/healthcheck" if lb_name.startswith('shared-external-alb') else "/sys-internal"
 
     body = client.V1Ingress(
         api_version="networking.k8s.io/v1",
@@ -94,7 +95,7 @@ def create_ingress_object_with_annotations(alb, security_group_ids):
                                 path_type="Exact",
                                 backend=client.V1IngressBackend(
                                     service=client.V1IngressServiceBackend(
-                                        name="healthcheck-v2",
+                                        name="healthcheck-v2" if lb_name.startswith('shared-external-alb') else "listener-protection-v2",
                                         port=client.V1ServiceBackendPort(name="use-annotation")
                                     )
                                 )
