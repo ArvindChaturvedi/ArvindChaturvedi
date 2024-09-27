@@ -1,3 +1,4 @@
+import os
 import boto3
 from kubernetes import client, config
 import re
@@ -21,9 +22,7 @@ def get_security_groups_by_alb_tag(tag_value):
         lb_arn = lb['LoadBalancerArn']
         tags = get_alb_tags(lb_arn)
         
-        # Check if the ALB has the tag "ingress.k8s.aws/stack" with the required value
         if tags.get('ingress.k8s.aws/stack') == tag_value:
-            # Add the SecurityGroups associated with this ALB to the list
             if 'SecurityGroups' in lb:
                 security_group_ids.extend(lb['SecurityGroups'])
     
@@ -35,16 +34,12 @@ def get_existing_ingresses():
     existing_ingresses = {ing.metadata.name for ing in ingresses.items}
     return existing_ingresses
 
-def create_ingress_object_with_annotations(alb, security_group_ids):
+def create_ingress_object_with_annotations(alb, security_group_ids, is_external):
     lb_name = alb['LoadBalancerName']
     lb_arn = alb['LoadBalancerArn']
     lb_scheme = alb['Scheme']
-    
-    # Retrieve tags for the ALB
     tags = get_alb_tags(lb_arn)
     group_name = tags.get('ingress.k8s.aws/stack', lb_name)
-
-    # Combine all associated security groups into a comma-separated string
     security_group_ids_str = ",".join(security_group_ids) if security_group_ids else None
 
     annotations = {
@@ -53,29 +48,23 @@ def create_ingress_object_with_annotations(alb, security_group_ids):
         "alb.ingress.kubernetes.io/listen-ports": '[{"HTTPS":443}]',
         "alb.ingress.kubernetes.io/load-balancer-name": lb_name,
         "alb.ingress.kubernetes.io/manage-backend-security-group": "true",
-        "alb.ingress.kubernetes.io/scheme": "internet" if "external" in lb_name else "internal",
+        "alb.ingress.kubernetes.io/scheme": "internet" if is_external else "internal",
         "alb.ingress.kubernetes.io/target-type": "ip"
     }
 
-    # Add the security groups to annotations if available
     if security_group_ids_str:
         annotations["alb.ingress.kubernetes.io/security-groups"] = security_group_ids_str
 
-    # Correctly format the annotations for internal or external ALB
-    if lb_name.startswith('shared-external-alb'):
-        annotations["alb.ingress.kubernetes.io/actions.healthcheck-v2"] = (
-            '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTHY"}}'
-        )
-    elif lb_name.startswith('shared-internal-alb'):
-        annotations["alb.ingress.kubernetes.io/actions.listener-protection-v2"] = (
-            '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"Secure Listener Protection"}}'
-        )
+    if is_external:
+        annotations["alb.ingress.kubernetes.io/actions.healthcheck-v2"] = '''|
+  {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"HEALTHY"}}'''
+        path = "/healthcheck"
+    else:
+        annotations["alb.ingress.kubernetes.io/actions.listener-protection-v2"] = '''|
+  {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"Secure Listener Protection"}}'''
+        path = "/sys-internal"
 
     ingress_name = lb_name
-
-    # Define the path based on internal/external ALB
-    path = "/healthcheck" if lb_name.startswith('shared-external-alb') else "/sys-internal"
-
     body = client.V1Ingress(
         api_version="networking.k8s.io/v1",
         kind="Ingress",
@@ -95,7 +84,7 @@ def create_ingress_object_with_annotations(alb, security_group_ids):
                                 path_type="Exact",
                                 backend=client.V1IngressBackend(
                                     service=client.V1IngressServiceBackend(
-                                        name="healthcheck-v2" if lb_name.startswith('shared-external-alb') else "listener-protection-v2",
+                                        name="healthcheck-v2" if is_external else "listener-protection-v2",
                                         port=client.V1ServiceBackendPort(name="use-annotation")
                                     )
                                 )
@@ -112,27 +101,39 @@ def sync_albs_to_ingresses():
     config.load_incluster_config()
     k8s_client = client.NetworkingV1Api()
     
+    cluster_name = os.getenv('CLUSTER', None)
+    if not cluster_name:
+        print("CLUSTER environment variable is not set.")
+        return
+
     albs = get_albs()
     existing_ingresses = get_existing_ingresses()
 
     for alb in albs:
         lb_name = alb['LoadBalancerName']
-        tags = get_alb_tags(alb['LoadBalancerArn'])
+        lb_arn = alb['LoadBalancerArn']
+        tags = get_alb_tags(lb_arn)
+
+        # Check if the ALB belongs to the current cluster
+        if tags.get('elbv2.k8s.aws/cluster') != cluster_name:
+            print(f"Skipping ALB {lb_name} as it doesn't belong to cluster {cluster_name}.")
+            continue
 
         if lb_name.startswith('shared-external-alb') and tags.get('ingress.k8s.aws/stack', '').startswith('shared-external-'):
-            ingress_name = lb_name
             security_group_ids = get_security_groups_by_alb_tag('shared-external')
+            is_external = True
         elif lb_name.startswith('shared-internal-alb') and tags.get('ingress.k8s.aws/stack', '').startswith('shared-internal-'):
-            ingress_name = lb_name
             security_group_ids = get_security_groups_by_alb_tag('shared-internal')
+            is_external = False
         else:
-            continue  # Skip ALBs that don't match the criteria
+            continue
 
-        # Check if Ingress already exists
+        ingress_name = lb_name
+
         if ingress_name not in existing_ingresses:
-            ingress_object = create_ingress_object_with_annotations(alb, security_group_ids)
+            ingress_object = create_ingress_object_with_annotations(alb, security_group_ids, is_external)
             k8s_client.create_namespaced_ingress(namespace='kube-system', body=ingress_object)
-            print(f"Created Ingress: {ingress_name}")
+            print(f"Created Ingress: {ingress_name} for ALB: {lb_name}")
         else:
             print(f"Ingress {ingress_name} already exists.")
 
