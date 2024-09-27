@@ -114,11 +114,12 @@ def sync_albs_to_ingresses():
         lb_arn = alb['LoadBalancerArn']
         tags = get_alb_tags(lb_arn)
 
-        # Check if the ALB belongs to the current cluster
+        # Check if the ALB has the elbv2.k8s.aws/cluster tag and if it matches the CLUSTER environment variable
         if tags.get('elbv2.k8s.aws/cluster') != cluster_name:
-            print(f"Skipping ALB {lb_name} as it doesn't belong to cluster {cluster_name}.")
+            print(f"Skipping ALB {lb_name}: cluster tag does not match the CLUSTER environment variable.")
             continue
 
+        # Process ALBs with shared-external- or shared-internal- prefix for ingress creation
         if lb_name.startswith('shared-external-alb') and tags.get('ingress.k8s.aws/stack', '').startswith('shared-external-'):
             security_group_ids = get_security_groups_by_alb_tag('shared-external')
             is_external = True
