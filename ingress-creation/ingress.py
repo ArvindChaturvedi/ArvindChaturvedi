@@ -13,20 +13,19 @@ def get_alb_tags(alb_arn):
     response = elb_client.describe_tags(ResourceArns=[alb_arn])
     return {tag['Key']: tag['Value'] for tag in response['TagDescriptions'][0]['Tags']}
 
-def get_security_groups_by_alb_tag(tag_value):
+def get_security_groups_by_alb(alb_arn):
+    """
+    This function retrieves the security groups associated with a specific ALB.
+    """
     elb_client = boto3.client('elbv2')
-    response = elb_client.describe_load_balancers()
-    security_group_ids = []
+    response = elb_client.describe_load_balancers(LoadBalancerArns=[alb_arn])
     
-    for lb in response['LoadBalancers']:
-        lb_arn = lb['LoadBalancerArn']
-        tags = get_alb_tags(lb_arn)
-        
-        if tags.get('ingress.k8s.aws/stack') == tag_value:
-            if 'SecurityGroups' in lb:
-                security_group_ids.extend(lb['SecurityGroups'])
+    if 'LoadBalancers' in response and response['LoadBalancers']:
+        lb = response['LoadBalancers'][0]
+        security_groups = lb.get('SecurityGroups', [])
+        return security_groups
     
-    return security_group_ids
+    return []
 
 def get_existing_ingresses():
     k8s_client = client.NetworkingV1Api()
@@ -121,10 +120,10 @@ def sync_albs_to_ingresses():
 
         # Process ALBs with shared-external- or shared-internal- prefix for ingress creation
         if lb_name.startswith('shared-external-alb') and tags.get('ingress.k8s.aws/stack', '').startswith('shared-external-'):
-            security_group_ids = get_security_groups_by_alb_tag('shared-external')
+            security_group_ids = get_security_groups_by_alb(lb_arn)
             is_external = True
         elif lb_name.startswith('shared-internal-alb') and tags.get('ingress.k8s.aws/stack', '').startswith('shared-internal-'):
-            security_group_ids = get_security_groups_by_alb_tag('shared-internal')
+            security_group_ids = get_security_groups_by_alb(lb_arn)
             is_external = False
         else:
             continue
