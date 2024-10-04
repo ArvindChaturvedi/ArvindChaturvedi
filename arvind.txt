@@ -1,0 +1,14 @@
+Innovation:
+Throughout the year, I actively embraced innovation to enhance platform performance and operational efficiency. By leveraging cutting-edge AWS EKS features and automating critical processes, I was able to streamline complex tasks such as OPA constraint automation, saving countless productive hours for development teams. My focus on new technologies and proactive issue detection has continuously improved the platform's reliability, contributing to the overall success of our infrastructure.
+
+Customer:
+A customer-centric mindset has been central to my work this year. From providing timely support during migrations to ensuring clear and comprehensive communication, I have always prioritized the needs of our customers. The migration of customer-facing EKS documentation to the Orchestrator Documentation portal further improved accessibility, empowering our customers with the tools they need to succeed. My efforts have helped build trust and confidence in our platform, leading to positive customer feedback.
+
+Lean:
+I have consistently focused on optimizing processes and reducing operational overhead. Key initiatives like automating Kubernetes secret validations and ensuring defect-free releases have streamlined workflows and reduced manual interventions. My cost-saving initiatives are designed not only to deliver immediate impact but to also provide long-term efficiencies, ensuring sustainable value for the organization in the years ahead.
+
+One Team:
+Collaboration has been a cornerstone of my contributions. I have worked effectively across teams, providing clear demonstrations in sprint demos and contributing valuable insights on NTP services. My commitment to sharing knowledge and enhancing team collaboration has strengthened relationships and driven better outcomes. By aligning my efforts with the larger goals of the organization, I have helped foster a culture of shared success.
+
+Accountable:
+I have consistently taken accountability for delivering high-quality work, from driving zero-defect releases to adhering strictly to CAB and security reviews. Whether through presenting platform knowledge or managing critical customer documentation, I have ensured that every task is completed with precision and responsibility. My efforts reflect a deep commitment to both the team’s and the company’s success.
