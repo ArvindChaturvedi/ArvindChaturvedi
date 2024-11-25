@@ -1,0 +1,81 @@
+Knowledge Transfer Session Plan
+1. Welcome and Agenda Overview (5-10 mins)
+Objective: Set expectations for the session and outline the agenda.
+Brief introduction.
+Overview of topics to be covered:
+Architectural overview.
+Terraform codebase walkthrough.
+Core-apps functionality deep dive.
+Logging and observability.
+Upgrade, maintenance, and other operational tasks.
+Allocate time for Q&A after each section.
+2. Architectural Overview (20-30 mins)
+Objective: Provide a high-level understanding of the system architecture.
+Diagram Presentation:
+AWS resources (EKS clusters, VPCs, subnets, security groups, etc.).
+Integration points (external APIs, databases, monitoring tools).
+Components Explanation:
+Core-apps and their responsibilities.
+Supporting infrastructure (IAM roles, load balancers, logging mechanisms).
+Highlight Key Design Decisions:
+Why specific architectural choices were made.
+Trade-offs considered.
+3. Terraform Codebase Walkthrough (30-40 mins)
+Objective: Familiarize colleagues with the Terraform codebase and its structure.
+Repository Overview:
+Folder structure and conventions.
+Key modules and their purposes.
+Code Flow Deep Dive:
+Explanation of main.tf, variables.tf, outputs.tf, and module usage.
+Provider configurations and state management.
+Best Practices:
+Managing resources and dependencies.
+Code reviews and collaboration tips.
+Hands-On:
+Deploy a small resource (if feasible) to demonstrate the workflow.
+4. Core-Apps Functionality Deep Dive (40-50 mins)
+Objective: Explain the purpose and operation of core applications.
+Key Functionalities:
+Brief overview of each core app and its role in the ecosystem.
+Interaction with other components.
+Configuration Details:
+Critical configurations (environment variables, secrets management).
+Common Issues and Debugging:
+Scenarios and troubleshooting steps.
+5. Logging and Observability (30-40 mins)
+Objective: Discuss monitoring and logging strategies.
+Tools Overview:
+Logging setup (e.g., Fluent Bit, CloudWatch).
+Observability tools (e.g., Splunk OTEL, Prometheus).
+Integration:
+How logs are collected, processed, and analyzed.
+Dashboards and Alerts:
+Demonstrate key dashboards.
+Explain alert configurations and thresholds.
+6. Maintenance and Operational Tasks (30-40 mins)
+Objective: Cover routine tasks and incident handling processes.
+Upgrade Processes:
+EKS version upgrades.
+Node AMI upgrades.
+Maintenance Activities:
+Monitoring resource utilization.
+Managing deployments and rollbacks.
+Incident Handling:
+Steps for identifying and resolving issues.
+Escalation procedures.
+7. Interactive Q&A and Knowledge Validation (20-30 mins)
+Objective: Address questions and ensure clarity.
+Open floor for questions after each section.
+Conduct a short quiz or ask participants to summarize key points.
+8. Handover Documentation and Next Steps (10 mins)
+Objective: Share resources for continued learning.
+Provide access to:
+Architecture diagrams.
+Terraform documentation.
+Core-apps and logging setup guides.
+Maintenance playbooks.
+Discuss post-KT support and follow-ups.
+9. Feedback and Closing (5-10 mins)
+Objective: Conclude the session and gather feedback.
+Thank participants.
+Request feedback for improvements.
