@@ -1,4 +1,4 @@
-- 👋 Hi, I’m @ArvindChaturvedi. A Linux Foundation certified CKA administrator.
+- 👋 Hi, I’m @ArvindChaturvedi. A Linux Foundation certified CKA CKS Kubernetes administrator.
 - 👀 I’m interested in Cloud technologies and Platform Engineering
 - 🌱 I’m currently learning IaC using Pulumi, Crossplane, and GitOps
 - 💞️ I’m looking to collaborate on anything cloudy 😁
