@@ -1,7 +1,5 @@
 # 👋 Welcome to My GitHub Profile!
 
-![Header Image with Tech Logos](https://via.placeholder.com/800x200.png?text=Cloud+DevOps+%7C+Kubernetes+%7C+AWS+%7C+Automation)
-
 ### Hi, I'm **Arvind Chaturvedi** 👨‍💻  
 **Sr. Cloud Platform Engineer | Certified Kubernetes Specialist**
 
