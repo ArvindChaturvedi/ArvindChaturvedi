@@ -3,7 +3,7 @@
 ### Hi, I'm **Arvind Chaturvedi** 👨‍💻  
 **Sr. Cloud Platform Engineer | Certified Kubernetes Specialist**
 
-🚀 Passionate about **Platform Engineering**, **Automation**, and solving **Technical Challenges**. I have 10+ years of experience specializing in **Cloud DevOps**, designing and implementing scalable, resilient solutions for modern infrastructure needs.
+🚀 Passionate about **Platform Engineering**, **Automation**, and solving **Technical Challenges**. I have 11+ years of experience specializing in **Cloud DevOps**, designing and implementing scalable, resilient solutions for modern infrastructure needs.
 
 ---
 
